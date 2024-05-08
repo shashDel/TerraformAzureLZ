@@ -11,6 +11,7 @@ variable "hub_vnet_cidr" {
 
 #Azure Bastion Host variables
 variable "bastion_subnet" {
+description = 'bastion subnet name'
 }
 variable "bastion_address_prefix" {
 }
@@ -19,6 +20,7 @@ variable "bastion_pip_name"{
 variable "bastion_pip_allocation_mthd" {
 }
 variable "bastion_pip_sku" {
+  type = string
 }
 variable "az_bastion_host_name" {
 }
