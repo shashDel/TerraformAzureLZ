@@ -1,0 +1,104 @@
+---
+trigger: none
+stages:
+  - stage: CI
+    jobs:
+      - job: Copy_Publish
+        displayName: Build Job
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - task: CopyFiles@2
+            displayName: Copy to drop location
+            condition: succeededOrFailed()
+            inputs:
+              SourceFolder: mic-dr-landingzone-infra
+              Contents: "**"
+              TargetFolder: $(Build.ArtifactStagingDirectory)/mic-dr-landingzone-infra
+          - task: PublishBuildArtifacts@1
+            displayName: publish artifacts to drop
+            condition: succeededOrFailed()
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)
+              artifactName: drop
+  - stage: CD
+    dependsOn: CI
+    condition: succeededOrFailed()
+    jobs:
+      - job: Infra_Planning
+        displayName: Infra Planning
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - task: ms-devlabs.custom-terraform-tasks.custom-terraform-installer-task.TerraformInstaller@1
+            displayName: Install Terraform
+            condition: succeededOrFailed()
+            inputs:
+              terraformVersion: 'latest'
+          - task: TerraformTaskV3@3
+            displayName: "Terraform init"
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/mic-dr-landingzone-infra/'
+              backendServiceArm: 'UKS-HUB-SCN-01'
+              backendAzureRmResourceGroupName: 'UKS-HUB-TRFMIAC-RG01'
+              backendAzureRmStorageAccountName: 'ukshubtrfmiac01'
+              backendAzureRmContainerName: 'terraform'
+              backendAzureRmKey: 'terraform-hub.tfstate'
+          - task: TerraformTaskV3@3
+            displayName: "Terraform validate"
+            inputs:
+              provider: 'azurerm'
+              command: 'validate'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/mic-dr-landingzone-infra/'
+          - task: TerraformTaskV3@3
+            displayName: "Terraform plan"
+            inputs:
+              provider: 'azurerm'
+              command: 'plan'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/mic-dr-landingzone-infra/'
+              commandOptions: '-target="module.application_gateway" -var-file="terraform.tfvars"'
+              environmentServiceNameAzureRM: 'UKS-HUB-SCN-01'
+      - job: PreDeployment_Approval
+        dependsOn: Infra_Planning
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: Pre-deployment Approval
+            inputs:
+              notifyUsers: 'sparab@delphime.com'
+              instructions: 'Approve or Reject?'
+      - job: Infra_Provisiong
+        dependsOn: PreDeployment_Approval
+        displayName: Infra Provisioning
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - task: ms-devlabs.custom-terraform-tasks.custom-terraform-installer-task.TerraformInstaller@1
+            displayName: Install Terraform
+            condition: succeededOrFailed()
+            inputs:
+              terraformVersion: 'latest'
+          - task: TerraformTaskV3@3
+            displayName: "Terraform init"
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/mic-dr-landingzone-infra/'
+              backendServiceArm: 'UKS-HUB-SCN-01'
+              backendAzureRmResourceGroupName: 'UKS-HUB-TRFMIAC-RG01'
+              backendAzureRmStorageAccountName: 'ukshubtrfmiac01'
+              backendAzureRmContainerName: 'terraform'
+              backendAzureRmKey: 'terraform-hub.tfstate'          
+          - task: TerraformTaskV3@3
+            displayName: "Terraform apply"
+            inputs:
+              provider: 'azurerm'
+              command: 'apply'
+              workingDirectory: '$(System.DefaultWorkingDirectory)/mic-dr-landingzone-infra/'
+              commandOptions: '-target="module.application_gateway" -var-file="terraform.tfvars"'
+              environmentServiceNameAzureRM: 'UKS-HUB-SCN-01'
